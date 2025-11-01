@@ -9,7 +9,7 @@ fn main() {
         .add_plugins(DefaultPlugins)
         // Add a system that prints FPS every second
         .add_plugins(FrameTimeDiagnosticsPlugin::default())
-        .insert_resource(Grid::new(2.0))
+        .insert_resource(Grid::new(1.0))
         .add_systems(Startup, setup)
         .insert_resource(Time::<Fixed>::from_seconds(1.0 / 60.0))
         .add_systems(
@@ -162,7 +162,7 @@ fn spawn_particle(
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     let mut rand = rand::thread_rng();
-    for _ in 0..10 {
+    for _ in 0..100 {
         let start_pos = Vec3::new(
             rand.gen_range(2.0..18.0), // Innerhalb der Box (nicht -1 bis 1!)
             15.0,                      // Oben spawnen
@@ -185,7 +185,7 @@ fn physics_substeps(
     mut grid: ResMut<Grid>,
     mut query: Query<(Entity, &mut Particle, &mut Transform)>
 ) {
-    let substeps = 4;
+    let substeps = 2;
     let dt = 1.0 / 60.0; // dt, s. in main 
     let sub_dt = dt / substeps as f32;
 
