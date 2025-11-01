@@ -19,16 +19,21 @@ fn main() {
                 //spawn_particle,
                 physics_substeps,
                 sync_particles_to_transforms,
+                update_particle_colors,
                 fps_display_system,
                 camera_movment,
             ),
         )
         .run();
 }
-fn fps_display_system(diagnostics: Res<DiagnosticsStore>) {
+fn fps_display_system(
+    diagnostics: Res<DiagnosticsStore>,
+    particle_query: Query<&Particle>,  // Neu hinzufügen
+) {
     if let Some(fps) = diagnostics.get(&FrameTimeDiagnosticsPlugin::FPS) {
         if let Some(avg) = fps.average() {
-            println!("FPS: {:.2}", avg);
+            let particle_count = particle_query.iter().count();
+            println!("FPS: {:.2} | Particles: {}", avg, particle_count);
         }
     }
 }
@@ -82,19 +87,21 @@ fn setup(
     // camera
     commands.spawn((
         Camera3d::default(),
-        Transform::from_xyz(0.0, 3.0, 8.0).looking_at(Vec3::new(0.0, 2.0, 0.0), Vec3::Y),
+        Transform::from_xyz(BOX_SIZE / 2.0, 3.0, BOX_SIZE + 5.0).looking_at(Vec3::new(0.0, 2.0, 0.0), Vec3::Y),
         FpsCamera::new(),
     ));
 
     // light
     commands.spawn((
         PointLight {
+            intensity: 10_000_000.0,
+            range: 100.0,
             shadows_enabled: true,
             ..default()
         },
-        Transform::from_xyz(BOX_SIZE / 2., 10.0, BOX_SIZE / 2.),
+        Transform::from_xyz(BOX_SIZE + 10., BOX_SIZE, BOX_SIZE / 2.),
     ));
-    // Particle Spawn
+    // ground maybe das noch cooler machen?
     commands.spawn((
         Mesh3d(meshes.add(Plane3d::default().mesh().size(BOX_SIZE, BOX_SIZE))),
         MeshMaterial3d(materials.add(StandardMaterial {
@@ -148,10 +155,16 @@ fn camera_movment(
 
 fn keyboard_input(
     keyboard: Res<ButtonInput<KeyCode>>,
+    particle_query: Query<Entity, With<Particle>>,
     mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    meshes: ResMut<Assets<Mesh>>,
+    materials: ResMut<Assets<StandardMaterial>>,
 ) {
+    if keyboard.just_pressed(KeyCode::KeyR) {
+        for entity in particle_query.iter() {
+            commands.entity(entity).despawn();
+        }
+    }
     if keyboard.just_pressed(KeyCode::KeyE) {
         spawn_particle(commands, meshes, materials);
     }
@@ -161,22 +174,22 @@ fn spawn_particle(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    let mut rand = rand::thread_rng();
-    for _ in 0..100 {
+    let mut rand = rand::rng();
+    for _ in 0..500 {
         let start_pos = Vec3::new(
-            rand.gen_range(2.0..18.0), // Innerhalb der Box (nicht -1 bis 1!)
-            15.0,                      // Oben spawnen
-            rand.gen_range(2.0..18.0),
+            rand.random_range(2.0..18.0),
+            rand.random_range(15.0..20.0),                     
+            rand.random_range(2.0..18.0),
         );
         commands.spawn((
             // Alle gespawnten Sachen sind ein Entity, sie haben die gleiche ID
-            Mesh3d(meshes.add(Sphere::new(0.5))),
+            Mesh3d(meshes.add(Sphere::new(0.3))),
             MeshMaterial3d(materials.add(StandardMaterial {
                 base_color: Color::srgb(0.8, 0.2, 0.2),
                 ..default()
             })),
             Transform::from_translation(start_pos),
-            Particle::new(start_pos, 0.5),
+            Particle::new(start_pos, 0.3),
         ));
     }
 }
@@ -410,6 +423,20 @@ fn resolve_collisons(
     }
 }
 
+fn update_particle_colors(
+    mut query: Query<(&Particle, &MeshMaterial3d<StandardMaterial>)>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    for (particle, material_handle) in query.iter() {
+        let velocity = particle.pos - particle.old_pos;
+        let speed = velocity.length();
+        
+        if let Some(material) = materials.get_mut(&material_handle.0) {
+            let t = (speed * 10.0).clamp(0.0, 1.0);
+            material.base_color = Color::srgb(t, 0.2, 1.0 - t);
+        }
+    }
+}
 
 
 // fn resolve_collisons_deprecated(mut query: Query<(Entity, &mut Particle)>) {
