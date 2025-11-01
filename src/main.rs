@@ -15,12 +15,9 @@ fn main() {
         .add_systems(
             FixedUpdate,
             (
-                verlet_integration,
-                check_box_collision,
                 keyboard_input,
                 //spawn_particle,
-                build_spatial_grid,
-                resolve_collisons,
+                physics_substeps,
                 sync_particles_to_transforms,
                 fps_display_system,
                 camera_movment,
@@ -183,12 +180,28 @@ fn spawn_particle(
         ));
     }
 }
-fn verlet_integration(time: Res<Time>, mut query: Query<(&mut Transform, &mut Particle)>) {
+
+fn physics_substeps(
+    mut grid: ResMut<Grid>,
+    mut query: Query<(Entity, &mut Particle, &mut Transform)>
+) {
+    let substeps = 4;
+    let dt = 1.0 / 60.0; // dt, s. in main 
+    let sub_dt = dt / substeps as f32;
+
+    for _ in 0..substeps {
+        verlet_integration(sub_dt, &mut query);
+        check_box_collision(&mut query);
+        build_spatial_grid(&mut grid, &query);
+        resolve_collisons(&grid, &mut query);
+    }
+}
+
+fn verlet_integration(dt: f32, query: &mut Query<(Entity, &mut Particle, &mut Transform)>) {
     let gravity = vec3(0.0, -3.0, 0.0);
-    let dt = time.delta_secs();
     let dt_squared = dt * dt;
 
-    for (mut transform, mut particle) in query.iter_mut() {
+    for (_, mut particle, _transform) in query.iter_mut() {
         particle.acceleration = gravity;
 
         let velocity = particle.pos - particle.old_pos;
@@ -209,9 +222,9 @@ fn sync_particles_to_transforms(mut query: Query<(&Particle, &mut Transform)>) {
 }
 
 
-fn check_box_collision(mut query: Query<&mut Particle>) {
+fn check_box_collision(query: &mut Query<(Entity, &mut Particle, &mut Transform)>) {
     let damping = 0.8;
-    for mut particle in query.iter_mut() {
+    for (_, mut particle, _) in query.iter_mut() {
         if particle.pos.y - particle.radius < 0.0 {
             particle.pos.y = particle.radius;
             particle.old_pos.y = particle.pos.y + (particle.pos.y - particle.old_pos.y) * damping;
@@ -279,6 +292,10 @@ impl Grid {
 
         let mut nearby = Vec::new();
 
+        if let Some(entities) = self.grid.get(&cell) {
+            nearby.extend(entities);
+        }
+
         let neighbor_cells = [
             // Gleiche Y-Ebene (8 Nachbarn)
             (cell.0 + 1, cell.1, cell.2),     // rechts
@@ -326,32 +343,33 @@ impl Grid {
 }
 
 fn build_spatial_grid(
-    mut grid: ResMut<Grid>,
-    query: Query<(Entity, &Particle)>
+    grid: &mut Grid,
+    query: &Query<(Entity, &mut Particle, &mut Transform)>
 ) {
     grid.clear();
 
-    for (entity, particle) in query.iter() {
+    for (entity, particle, _) in query.iter() {
         grid.insert(particle.pos, entity)
     }
 }
 
 fn resolve_collisons(
-    grid: Res<Grid>,
-    mut query: Query<(Entity, &mut Particle)>
+    grid: &Grid,
+    query: &mut Query<(Entity, &mut Particle, &mut Transform)>
 ) {
     // Phasen System, da ich sonst mit einem doppelten for loop 2 borrow check probleme hätte, aufgrund von 2 mut queries.
 
     // Phase 1: Nur Kollisionen erkennen, 2 immutable referenzen: Beine können gleichzeitig existieren
     let mut collisions = Vec::new(); // Speicher alle einities mit Collisionen und ihrem correction_vektor
-    for (entity_a, particle_a) in query.iter() {
+    for (entity_a, particle_a, _) in query.iter() {
         let neighbors = grid.get_neighbors(particle_a.pos);
 
-        for entity_b in neighbors {
+        for &entity_b in &neighbors {
             if entity_a == entity_b { continue; }
+            if entity_a >= entity_b { continue; }
             // Kollision sowie correcion
             match query.get(entity_b) {
-                Ok((_, particle_b)) => {
+                Ok((_, particle_b, _)) => {
                     let delta = particle_b.pos - particle_a.pos;
                     let min_dist = particle_a.radius + particle_b.radius;
                     let min_dist_squared = min_dist * min_dist;
@@ -380,12 +398,12 @@ fn resolve_collisons(
     // Phase 2: Die Korrektion der beiden Entities
     for (entity_a, entity_b, correction) in collisions {
         let damping = 0.8;
-        if let Ok((_, mut particle_a)) = query.get_mut(entity_a) { // Das gleiche wie match query.get_mut { Ok((_, xxx )) => { ... } ... }
+        if let Ok((_, mut particle_a, _)) = query.get_mut(entity_a) { // Das gleiche wie match query.get_mut { Ok((_, xxx )) => { ... } ... }
             particle_a.pos -= correction;
             particle_a.old_pos -= correction * damping;
         }
         
-        if let Ok((_, mut particle_b)) = query.get_mut(entity_b) {
+        if let Ok((_, mut particle_b, _)) = query.get_mut(entity_b) {
             particle_b.pos += correction;
             particle_b.old_pos += correction * damping;
         }
@@ -394,34 +412,34 @@ fn resolve_collisons(
 
 
 
-fn resolve_collisons_deprecated(mut query: Query<(Entity, &mut Particle)>) {
-    let mut combinations = query.iter_combinations_mut(); // Wie ein doppelter for loop: Geht in Bevy optimiert über jedes Paar einmal.
-    while let Some([(_entity_a, mut particle_a), (_entity_b, mut particle_b)]) =
-        combinations.fetch_next()
-    {
-        // Pattern matching, noch nicht wirklich was damit gemacht
-        let delta = particle_b.pos - particle_a.pos;
-        let min_dist = particle_a.radius + particle_b.radius;
-        let min_dist_squared = min_dist * min_dist;
+// fn resolve_collisons_deprecated(mut query: Query<(Entity, &mut Particle)>) {
+//     let mut combinations = query.iter_combinations_mut(); // Wie ein doppelter for loop: Geht in Bevy optimiert über jedes Paar einmal.
+//     while let Some([(_entity_a, mut particle_a), (_entity_b, mut particle_b)]) =
+//         combinations.fetch_next()
+//     {
+//         // Pattern matching, noch nicht wirklich was damit gemacht
+//         let delta = particle_b.pos - particle_a.pos;
+//         let min_dist = particle_a.radius + particle_b.radius;
+//         let min_dist_squared = min_dist * min_dist;
 
-        let dist_squared = delta.length_squared();
+//         let dist_squared = delta.length_squared();
 
-        if dist_squared < min_dist_squared && dist_squared > 0.0001 {
-            let dist = dist_squared.sqrt();
+//         if dist_squared < min_dist_squared && dist_squared > 0.0001 {
+//             let dist = dist_squared.sqrt();
 
-            let overlap = min_dist - dist;
+//             let overlap = min_dist - dist;
 
-            let direction = delta / dist;
+//             let direction = delta / dist;
 
-            let correction = direction * overlap * 0.5; // Positionskorrektion, 0.5 da so jeder Partikel gleich Korrigiert wird
+//             let correction = direction * overlap * 0.5; // Positionskorrektion, 0.5 da so jeder Partikel gleich Korrigiert wird
 
-            // Position correction
-            particle_a.pos -= correction;
-            particle_b.pos += correction;
+//             // Position correction
+//             particle_a.pos -= correction;
+//             particle_b.pos += correction;
 
-            // Damping old_pos, to slow down the velocity
-            particle_a.old_pos -= correction * 0.5;
-            particle_b.old_pos += correction * 0.5;
-        }
-    }
-}
+//             // Damping old_pos, to slow down the velocity
+//             particle_a.old_pos -= correction * 0.5;
+//             particle_b.old_pos += correction * 0.5;
+//         }
+//     }
+// }
