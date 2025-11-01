@@ -7,6 +7,7 @@ name = "Verlet-Partcle-3d-bevy"
 version = "0.1.0"
 dependencies = [
  "bevy",
+ "rand",
 ]
 
 [[package]]
