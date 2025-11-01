@@ -2,6 +2,8 @@ use bevy::{prelude::*, transform};
 // use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use rand::Rng;
 
+use std::collections::HashMap;
+
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
@@ -56,7 +58,7 @@ struct FpsCamera {
     yaw: f32,   // Rotation links/rechts
     pitch: f32, // Rotation hoch/runter
 }
-impl FpsCamera{
+impl FpsCamera {
     fn new() -> Self {
         Self {
             speed: 5.0,
@@ -89,13 +91,7 @@ fn setup(
     ));
     // Particle Spawn
     commands.spawn((
-        Mesh3d(
-            meshes.add(
-                Plane3d::default()
-                    .mesh()
-                    .size(BOX_SIZE, BOX_SIZE),
-            ),
-        ),
+        Mesh3d(meshes.add(Plane3d::default().mesh().size(BOX_SIZE, BOX_SIZE))),
         MeshMaterial3d(materials.add(StandardMaterial {
             base_color: Color::srgb(0.3, 0.5, 0.3),
             metallic: 0.0,
@@ -113,7 +109,8 @@ fn camera_movment(
     time: Res<Time>,
     mut query: Query<(&mut Transform, &FpsCamera)>,
 ) {
-    for (mut transform, fps_cam) in query.iter_mut() { // ECS basiert, obwohl es nur eine Kamera gibt
+    for (mut transform, fps_cam) in query.iter_mut() {
+        // ECS basiert, obwohl es nur eine Kamera gibt
         let mut velocity = Vec3::ZERO;
 
         let forward = transform.forward();
@@ -132,7 +129,7 @@ fn camera_movment(
             velocity -= *forward;
         }
 
-        // Space / Shift 
+        // Space / Shift
         if key.pressed(KeyCode::Space) {
             velocity.y += 1.0;
         }
@@ -150,7 +147,7 @@ fn keyboard_input(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    if keyboard.just_pressed(KeyCode::Space) {
+    if keyboard.just_pressed(KeyCode::KeyE) {
         spawn_particle(commands, meshes, materials);
     }
 }
@@ -162,8 +159,8 @@ fn spawn_particle(
     let mut rand = rand::thread_rng();
     for _ in 0..10 {
         let start_pos = Vec3::new(
-            rand.gen_range(2.0..18.0),   // Innerhalb der Box (nicht -1 bis 1!)
-            15.0,                         // Oben spawnen
+            rand.gen_range(2.0..18.0), // Innerhalb der Box (nicht -1 bis 1!)
+            15.0,                      // Oben spawnen
             rand.gen_range(2.0..18.0),
         );
         commands.spawn((
@@ -205,31 +202,31 @@ fn check_box_collision(mut query: Query<&mut Particle>) {
             particle.pos.y = particle.radius;
             particle.old_pos.y = particle.pos.y + (particle.pos.y - particle.old_pos.y) * damping;
         }
-        
+
         // DECKE (oben) - Y = BOX_SIZE
         if particle.pos.y + particle.radius > BOX_SIZE {
             particle.pos.y = BOX_SIZE - particle.radius;
             particle.old_pos.y = particle.pos.y + (particle.pos.y - particle.old_pos.y) * damping;
         }
-        
+
         // RECHTE WAND - X = BOX_SIZE
         if particle.pos.x + particle.radius > BOX_SIZE {
             particle.pos.x = BOX_SIZE - particle.radius;
             particle.old_pos.x = particle.pos.x + (particle.pos.x - particle.old_pos.x) * damping;
         }
-        
+
         // LINKE WAND - X = 0
         if particle.pos.x - particle.radius < 0.0 {
             particle.pos.x = particle.radius;
             particle.old_pos.x = particle.pos.x + (particle.pos.x - particle.old_pos.x) * damping;
         }
-        
+
         // VORDERE WAND - Z = BOX_SIZE
         if particle.pos.z + particle.radius > BOX_SIZE {
             particle.pos.z = BOX_SIZE - particle.radius;
             particle.old_pos.z = particle.pos.z + (particle.pos.z - particle.old_pos.z) * damping;
         }
-        
+
         // HINTERE WAND - Z = 0
         if particle.pos.z - particle.radius < 0.0 {
             particle.pos.z = particle.radius;
@@ -237,8 +234,140 @@ fn check_box_collision(mut query: Query<&mut Particle>) {
         }
     }
 }
+#[derive(Resource)] // verwendet für globale, einzigartige Dinge
+struct Grid {
+    cell_size: f32,
+    grid: HashMap<(i32, i32, i32), Vec<Entity>>,
+}
+impl Grid {
+    fn new(cell_size: f32) -> Self {
+        Self {
+            cell_size,
+            grid: HashMap::new(),
+        }
+    }
+    fn get_cell(&self, pos: Vec3) -> (i32, i32, i32) {
+        (
+            (pos.x / self.cell_size) as i32,
+            (pos.y / self.cell_size) as i32,
+            (pos.z / self.cell_size) as i32,
+        )
+    }
+    fn clear(&mut self) {
+        self.grid.clear()
+    }
+    fn insert(&mut self, pos: Vec3, entity: Entity) {
+        let cell = self.get_cell(pos);
+        self.grid.entry(cell).or_insert_with(Vec::new).push(entity)
+    }
+    fn get_neighbors(&self, pos: Vec3) -> Vec<Entity> {
+        let cell = self.get_cell(pos);
 
-fn resolve_collisons(mut query: Query<(Entity, &mut Particle)>) {
+        let mut nearby = Vec::new();
+
+        let neighbor_cells = [
+            // Gleiche Y-Ebene (8 Nachbarn)
+            (cell.0 + 1, cell.1, cell.2),     // rechts
+            (cell.0 + 1, cell.1, cell.2 + 1), // rechts vorne
+            (cell.0, cell.1, cell.2 + 1),     // vorne
+            (cell.0 - 1, cell.1, cell.2 + 1), // links vorne
+            (cell.0 - 1, cell.1, cell.2),     // links
+            (cell.0 - 1, cell.1, cell.2 - 1), // links hinten
+            (cell.0, cell.1, cell.2 - 1),     // hinten
+            (cell.0 + 1, cell.1, cell.2 - 1), // rechts hinten
+            // Obere Y-Ebene (9 Nachbarn)
+            (cell.0, cell.1 + 1, cell.2),         // oben mitte
+            (cell.0 + 1, cell.1 + 1, cell.2),     // oben rechts
+            (cell.0 + 1, cell.1 + 1, cell.2 + 1), // oben rechts vorne
+            (cell.0, cell.1 + 1, cell.2 + 1),     // oben vorne
+            (cell.0 - 1, cell.1 + 1, cell.2 + 1), // oben links vorne
+            (cell.0 - 1, cell.1 + 1, cell.2),     // oben links
+            (cell.0 - 1, cell.1 + 1, cell.2 - 1), // oben links hinten
+            (cell.0, cell.1 + 1, cell.2 - 1),     // oben hinten
+            (cell.0 + 1, cell.1 + 1, cell.2 - 1), // oben rechts hinten
+            // Untere Y-Ebene (9 Nachbarn)
+            (cell.0, cell.1 - 1, cell.2),         // unten mitte
+            (cell.0 + 1, cell.1 - 1, cell.2),     // unten rechts
+            (cell.0 + 1, cell.1 - 1, cell.2 + 1), // unten rechts vorne
+            (cell.0, cell.1 - 1, cell.2 + 1),     // unten vorne
+            (cell.0 - 1, cell.1 - 1, cell.2 + 1), // unten links vorne
+            (cell.0 - 1, cell.1 - 1, cell.2),     // unten links
+            (cell.0 - 1, cell.1 - 1, cell.2 - 1), // unten links hinten
+            (cell.0, cell.1 - 1, cell.2 - 1),     // unten hinten
+            (cell.0 + 1, cell.1 - 1, cell.2 - 1), // unten rechts hinten
+        ];
+        
+        for cell in neighbor_cells {
+            match self.grid.get(&cell) {
+                Some(entities) => {
+                    nearby.extend(entities)
+                }
+                None => {
+                    // Existiert nichts in dieser Zelle, nichts wird gemacht
+                }
+            }
+        }
+        nearby
+    }
+}
+
+fn build_spatial_grid(
+    mut grid: ResMut<Grid>,
+    query: Query<(Entity, &Particle)>
+) {
+    for (entity, particle) in query.iter() {
+        grid.insert(particle.pos, entity)
+    }
+}
+
+fn resolve_collisons(
+    grid: Res<Grid>,
+    mut query: Query<(Entity, &mut Particle)>
+) {
+
+    for (entity, mut particle_a) in query.iter() {
+        let nearby = grid.get_neighbors(particle_a.pos);
+
+        for other_entity in nearby {
+            if entity == other_entity { return }
+
+            match query.get_mut(other_entity) {
+                Ok((_, mut particle_b)) => {
+                    // Pattern matching, noch nicht wirklich was damit gemacht
+                    let delta = particle_b.pos - particle_a.pos;
+                    let min_dist = particle_a.radius + particle_b.radius;
+                    let min_dist_squared = min_dist * min_dist;
+
+                    let dist_squared = delta.length_squared();
+
+                    if dist_squared < min_dist_squared && dist_squared > 0.0001 {
+                        let dist = dist_squared.sqrt();
+
+                        let overlap = min_dist - dist;
+
+                        let direction = delta / dist;
+
+                        let correction = direction * overlap * 0.5; // Positionskorrektion, 0.5 da so jeder Partikel gleich Korrigiert wird
+
+                        // Position correction
+                        particle_a.pos -= correction;
+                        particle_b.pos += correction;
+
+                        // Damping old_pos, to slow down the velocity
+                        particle_a.old_pos -= correction * 0.5;
+                        particle_b.old_pos += correction * 0.5;
+                    }
+                }
+                Err(T) => {
+
+                }
+            }
+        }
+    }
+}
+
+
+fn resolve_collisons_deprecated(mut query: Query<(Entity, &mut Particle)>) {
     let mut combinations = query.iter_combinations_mut(); // Wie ein doppelter for loop: Geht in Bevy optimiert über jedes Paar einmal.
     while let Some([(_entity_a, mut particle_a), (_entity_b, mut particle_b)]) =
         combinations.fetch_next()
@@ -264,7 +393,7 @@ fn resolve_collisons(mut query: Query<(Entity, &mut Particle)>) {
             particle_b.pos += correction;
 
             // Damping old_pos, to slow down the velocity
-            particle_a.old_pos -= correction * 0.5;  
+            particle_a.old_pos -= correction * 0.5;
             particle_b.old_pos += correction * 0.5;
         }
     }
