@@ -12,3 +12,15 @@ rand = "*"
 # Enable a large amount of optimization in the dev profile for dependencies.
 [profile.dev.package."*"]
 opt-level = 3
+
+# [dependencies]
+# bevy = { version = "0.16" }
+# rand = "0.8"
+
+# # WASM support
+# [target.'cfg(target_arch = "wasm32")'.dependencies]
+# getrandom = { version = "0.2", features = ["js"] }
+
+# [profile.release]
+# opt-level = 3
+# lto = true

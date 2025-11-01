@@ -59,7 +59,7 @@ impl Particle {
 #[derive(Component)]
 struct Ground;
 
-const BOX_SIZE: f32 = 20.0;
+const BOX_SIZE: f32 = 10.0;
 
 #[derive(Component)]
 struct FpsCamera {
@@ -155,12 +155,13 @@ fn camera_movment(
 
 fn keyboard_input(
     keyboard: Res<ButtonInput<KeyCode>>,
+    mouse: Res<ButtonInput<MouseButton>>,
     particle_query: Query<Entity, With<Particle>>,
     mut commands: Commands,
     meshes: ResMut<Assets<Mesh>>,
     materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    if keyboard.just_pressed(KeyCode::KeyR) {
+    if keyboard.just_pressed(KeyCode::KeyR) || mouse.just_pressed(MouseButton::Left) {
         for entity in particle_query.iter() {
             commands.entity(entity).despawn();
         }
@@ -174,12 +175,12 @@ fn spawn_particle(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    let mut rand = rand::rng();
-    for _ in 0..500 {
+    let mut rand = rand::thread_rng();
+    for _ in 0..100 {
         let start_pos = Vec3::new(
-            rand.random_range(2.0..18.0),
-            rand.random_range(15.0..20.0),                     
-            rand.random_range(2.0..18.0),
+            rand.gen_range(0.0..BOX_SIZE),
+            rand.gen_range(15.0..20.0),                     
+            rand.gen_range(0.0..BOX_SIZE),
         );
         commands.spawn((
             // Alle gespawnten Sachen sind ein Entity, sie haben die gleiche ID
