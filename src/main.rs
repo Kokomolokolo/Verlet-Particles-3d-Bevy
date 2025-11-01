@@ -1,5 +1,5 @@
 use bevy::{prelude::*, transform};
-// use bevy_inspector_egui::quick::WorldInspectorPlugin;
+use bevy::diagnostic::{FrameTimeDiagnosticsPlugin, DiagnosticsStore};
 use rand::Rng;
 
 use std::collections::HashMap;
@@ -7,25 +7,33 @@ use std::collections::HashMap;
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
+        // Add a system that prints FPS every second
+        .add_plugins(FrameTimeDiagnosticsPlugin::default())
+        .insert_resource(Grid::new(2.0))
         .add_systems(Startup, setup)
-        // .add_plugins(WorldInspectorPlugin::new())  // Zeigt FPS + alle Entities!
+        .insert_resource(Time::<Fixed>::from_seconds(1.0 / 60.0))
         .add_systems(
-            Update,
+            FixedUpdate,
             (
                 verlet_integration,
                 check_box_collision,
                 keyboard_input,
                 //spawn_particle,
+                build_spatial_grid,
                 resolve_collisons,
+                sync_particles_to_transforms,
                 fps_display_system,
                 camera_movment,
             ),
         )
         .run();
 }
-fn fps_display_system(time: Res<Time>) {
-    let fps = 1.0 / time.delta_secs();
-    println!("FPS: {:.2}", fps);
+fn fps_display_system(diagnostics: Res<DiagnosticsStore>) {
+    if let Some(fps) = diagnostics.get(&FrameTimeDiagnosticsPlugin::FPS) {
+        if let Some(avg) = fps.average() {
+            println!("FPS: {:.2}", avg);
+        }
+    }
 }
 
 #[derive(Component)]
@@ -190,13 +198,19 @@ fn verlet_integration(time: Res<Time>, mut query: Query<(&mut Transform, &mut Pa
         particle.old_pos = particle.pos;
         particle.pos = new_pos;
 
-        // Transform aktualisieren
+        // Transform wird in eigener Funktion aktuallieisert.
+    }
+}
+
+fn sync_particles_to_transforms(mut query: Query<(&Particle, &mut Transform)>) {
+    for (particle, mut transform) in &mut query {
         transform.translation = particle.pos;
     }
 }
 
+
 fn check_box_collision(mut query: Query<&mut Particle>) {
-    let damping = 0.5;
+    let damping = 0.8;
     for mut particle in query.iter_mut() {
         if particle.pos.y - particle.radius < 0.0 {
             particle.pos.y = particle.radius;
@@ -315,6 +329,8 @@ fn build_spatial_grid(
     mut grid: ResMut<Grid>,
     query: Query<(Entity, &Particle)>
 ) {
+    grid.clear();
+
     for (entity, particle) in query.iter() {
         grid.insert(particle.pos, entity)
     }
@@ -324,16 +340,18 @@ fn resolve_collisons(
     grid: Res<Grid>,
     mut query: Query<(Entity, &mut Particle)>
 ) {
+    // Phasen System, da ich sonst mit einem doppelten for loop 2 borrow check probleme hätte, aufgrund von 2 mut queries.
 
-    for (entity, mut particle_a) in query.iter() {
-        let nearby = grid.get_neighbors(particle_a.pos);
+    // Phase 1: Nur Kollisionen erkennen, 2 immutable referenzen: Beine können gleichzeitig existieren
+    let mut collisions = Vec::new(); // Speicher alle einities mit Collisionen und ihrem correction_vektor
+    for (entity_a, particle_a) in query.iter() {
+        let neighbors = grid.get_neighbors(particle_a.pos);
 
-        for other_entity in nearby {
-            if entity == other_entity { return }
-
-            match query.get_mut(other_entity) {
-                Ok((_, mut particle_b)) => {
-                    // Pattern matching, noch nicht wirklich was damit gemacht
+        for entity_b in neighbors {
+            if entity_a == entity_b { continue; }
+            // Kollision sowie correcion
+            match query.get(entity_b) {
+                Ok((_, particle_b)) => {
                     let delta = particle_b.pos - particle_a.pos;
                     let min_dist = particle_a.radius + particle_b.radius;
                     let min_dist_squared = min_dist * min_dist;
@@ -349,22 +367,31 @@ fn resolve_collisons(
 
                         let correction = direction * overlap * 0.5; // Positionskorrektion, 0.5 da so jeder Partikel gleich Korrigiert wird
 
-                        // Position correction
-                        particle_a.pos -= correction;
-                        particle_b.pos += correction;
-
-                        // Damping old_pos, to slow down the velocity
-                        particle_a.old_pos -= correction * 0.5;
-                        particle_b.old_pos += correction * 0.5;
+                        collisions.push((entity_a, entity_b, correction))
                     }
                 }
-                Err(T) => {
-
+                Err(e) => {
+                    println!("{}", e)
                 }
             }
         }
     }
+
+    // Phase 2: Die Korrektion der beiden Entities
+    for (entity_a, entity_b, correction) in collisions {
+        let damping = 0.8;
+        if let Ok((_, mut particle_a)) = query.get_mut(entity_a) { // Das gleiche wie match query.get_mut { Ok((_, xxx )) => { ... } ... }
+            particle_a.pos -= correction;
+            particle_a.old_pos -= correction * damping;
+        }
+        
+        if let Ok((_, mut particle_b)) = query.get_mut(entity_b) {
+            particle_b.pos += correction;
+            particle_b.old_pos += correction * damping;
+        }
+    }
 }
+
 
 
 fn resolve_collisons_deprecated(mut query: Query<(Entity, &mut Particle)>) {
