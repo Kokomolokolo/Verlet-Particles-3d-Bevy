@@ -5,8 +5,24 @@ use rand::Rng;
 use std::collections::HashMap;
 
 fn main() {
+    #[cfg(target_arch = "wasm32")]
+    let window = Window {
+        canvas: Some("#glcanvas".to_string()),
+        fit_canvas_to_parent: true,
+        ..default()
+    };
+    
+    #[cfg(not(target_arch = "wasm32"))]
+    let window = Window {
+        title: "Verlet Particle Sim".to_string(),
+        resolution: (1280., 720.).into(),
+        ..default()
+    };
     App::new()
-        .add_plugins(DefaultPlugins)
+        .add_plugins(DefaultPlugins.set(WindowPlugin {
+            primary_window: Some(window),
+            ..default()
+        }))
         // Add a system that prints FPS every second
         .add_plugins(FrameTimeDiagnosticsPlugin::default())
         .insert_resource(Grid::new(1.0))
@@ -245,10 +261,10 @@ fn check_box_collision(query: &mut Query<(Entity, &mut Particle, &mut Transform)
         }
 
         // DECKE (oben) - Y = BOX_SIZE
-        if particle.pos.y + particle.radius > BOX_SIZE {
-            particle.pos.y = BOX_SIZE - particle.radius;
-            particle.old_pos.y = particle.pos.y + (particle.pos.y - particle.old_pos.y) * damping;
-        }
+        // if particle.pos.y + particle.radius > BOX_SIZE {
+        //     particle.pos.y = BOX_SIZE - particle.radius;
+        //     particle.old_pos.y = particle.pos.y + (particle.pos.y - particle.old_pos.y) * damping;
+        // }
 
         // RECHTE WAND - X = BOX_SIZE
         if particle.pos.x + particle.radius > BOX_SIZE {
