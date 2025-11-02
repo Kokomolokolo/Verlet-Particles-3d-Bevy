@@ -161,12 +161,12 @@ fn keyboard_input(
     meshes: ResMut<Assets<Mesh>>,
     materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    if keyboard.just_pressed(KeyCode::KeyR) || mouse.just_pressed(MouseButton::Left) {
+    if keyboard.just_pressed(KeyCode::KeyR) {
         for entity in particle_query.iter() {
             commands.entity(entity).despawn();
         }
     }
-    if keyboard.just_pressed(KeyCode::KeyE) {
+    if keyboard.just_pressed(KeyCode::KeyE) || mouse.just_pressed(MouseButton::Left) {
         spawn_particle(commands, meshes, materials);
     }
 }
